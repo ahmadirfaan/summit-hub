@@ -265,6 +265,53 @@ func TestSortPosts(t *testing.T) {
 	}
 }
 
+func TestLoadPhotosEmpty(t *testing.T) {
+	svc := NewService(nil)
+	photos, err := svc.loadPhotos(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("load photos: %v", err)
+	}
+	if len(photos) != 0 {
+		t.Fatalf("expected empty map")
+	}
+}
+
+func TestLoadPhotosScanError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`SELECT id, post_id, photo_url, created_at`).
+		WithArgs([]string{"post-1"}).
+		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow("photo-1"))
+
+	svc := NewService(mock)
+	_, err = svc.loadPhotos(context.Background(), []string{"post-1"})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestNearbyScanError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`SELECT id, user_id, content, ST_Y\(location::geometry\), ST_X\(location::geometry\), visibility, created_at`).
+		WithArgs(106.8, -6.2, 1000.0).
+		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow("post-1"))
+
+	svc := NewService(mock)
+	_, err = svc.Nearby(context.Background(), -6.2, 106.8, 1)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
 func TestFeedScanError(t *testing.T) {
 	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
 	if err != nil {

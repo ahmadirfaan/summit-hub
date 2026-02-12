@@ -230,6 +230,24 @@ func TestReviewsQueryError(t *testing.T) {
 	}
 }
 
+func TestReviewsScanError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`SELECT id, waypoint_id, user_id, rating, comment, created_at`).
+		WithArgs("wp-scan").
+		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow("rev-1"))
+
+	svc := NewService(mock)
+	_, err = svc.Reviews(context.Background(), "wp-scan")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
 func TestPhotosQueryError(t *testing.T) {
 	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
 	if err != nil {
@@ -276,6 +294,24 @@ func TestSearchQueryError(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, description, type, ST_Y\(location::geometry\), ST_X\(location::geometry\),`).
 		WithArgs(106.8, -6.2, 5000.0).
 		WillReturnError(errWaypoint)
+
+	svc := NewService(mock)
+	_, err = svc.Search(context.Background(), -6.2, 106.8, 5)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestSearchScanError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`SELECT id, name, description, type, ST_Y\(location::geometry\), ST_X\(location::geometry\),`).
+		WithArgs(106.8, -6.2, 5000.0).
+		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow("wp-1"))
 
 	svc := NewService(mock)
 	_, err = svc.Search(context.Background(), -6.2, 106.8, 5)

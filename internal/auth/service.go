@@ -22,6 +22,14 @@ type Service struct {
 	db     db.Querier
 }
 
+var signTokenFn = func(s *Service, userID string, ttl time.Duration) (string, error) {
+	return s.signToken(userID, ttl)
+}
+
+var hashPasswordFn = bcrypt.GenerateFromPassword
+var comparePasswordFn = bcrypt.CompareHashAndPassword
+var parseWithClaimsFn = jwt.ParseWithClaims
+
 type Claims struct {
 	UserID string `json:"user_id"`
 	jwt.RegisteredClaims
@@ -38,7 +46,7 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) (User, Toke
 	if req.Email == "" || req.Username == "" || req.Password == "" {
 		return User{}, TokenResponse{}, errors.New("email, username, password required")
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	hash, err := hashPasswordFn([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return User{}, TokenResponse{}, err
 	}
@@ -79,7 +87,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (User, TokenRespo
 		return User{}, TokenResponse{}, err
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+	if err := comparePasswordFn([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		return User{}, TokenResponse{}, errors.New("invalid credentials")
 	}
 
@@ -91,12 +99,12 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (User, TokenRespo
 }
 
 func (s *Service) GenerateTokens(ctx context.Context, userID string) (TokenResponse, error) {
-	access, err := s.signToken(userID, accessTokenTTL)
+	access, err := signTokenFn(s, userID, accessTokenTTL)
 	if err != nil {
 		return TokenResponse{}, err
 	}
 
-	refresh, err := s.signToken(userID, refreshTokenTTL)
+	refresh, err := signTokenFn(s, userID, refreshTokenTTL)
 	if err != nil {
 		return TokenResponse{}, err
 	}
@@ -148,7 +156,7 @@ func (s *Service) signToken(userID string, ttl time.Duration) (string, error) {
 }
 
 func (s *Service) parseToken(token string) (*Claims, error) {
-	parsed, err := jwt.ParseWithClaims(token, &Claims{}, func(_ *jwt.Token) (interface{}, error) {
+	parsed, err := parseWithClaimsFn(token, &Claims{}, func(_ *jwt.Token) (interface{}, error) {
 		return s.secret, nil
 	})
 	if err != nil {

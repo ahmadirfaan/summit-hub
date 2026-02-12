@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"backend-summithub/internal/stream"
+
 	"github.com/pashagolub/pgxmock/v3"
 )
 
@@ -194,6 +196,84 @@ func TestSummaryCountError(t *testing.T) {
 
 	svc := NewService(mock, nil)
 	_, err = svc.Summary(context.Background(), "session-5")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestAddPointBroadcastsToHub(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	hub := stream.NewHub(nil)
+	client := hub.Register("session-hub")
+	defer hub.Unregister(client)
+
+	mock.ExpectQuery(`SELECT ST_Y\(location::geometry\), ST_X\(location::geometry\), COALESCE\(elevation_m, 0\)`).
+		WithArgs("session-hub").
+		WillReturnRows(pgxmock.NewRows([]string{"lat", "lng", "elev"}).AddRow(0, 0, 0))
+
+	mock.ExpectQuery(`INSERT INTO track_points`).
+		WithArgs("session-hub", 106.8, -6.2, 0.0, pgxmock.AnyArg(), 0.0).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "created_at"}).AddRow(int64(1), time.Now()))
+
+	svc := NewService(mock, hub)
+	_, err = svc.AddPoint(context.Background(), "session-hub", TrackPoint{Lat: -6.2, Lng: 106.8})
+	if err != nil {
+		t.Fatalf("add point: %v", err)
+	}
+
+	select {
+	case <-client.Send:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("expected broadcast")
+	}
+}
+
+func TestSummaryWithEndedAt(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	started := time.Now().Add(-2 * time.Hour)
+	ended := started.Add(30 * time.Minute)
+
+	mock.ExpectQuery(`SELECT id, started_at, ended_at, COALESCE\(total_distance_m,0\), COALESCE\(total_elevation_gain_m,0\)`).
+		WithArgs("session-ended").
+		WillReturnRows(pgxmock.NewRows([]string{"id", "started_at", "ended_at", "dist", "elev"}).AddRow("session-ended", started, ended, 120.0, 5.0))
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM track_points`).
+		WithArgs("session-ended").
+		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(3))
+
+	svc := NewService(mock, nil)
+	summary, err := svc.Summary(context.Background(), "session-ended")
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary.DurationSec != int64(30*time.Minute.Seconds()) {
+		t.Fatalf("expected duration from ended_at")
+	}
+}
+
+func TestPointsScanError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`SELECT id, session_id, ST_Y\(location::geometry\), ST_X\(location::geometry\), COALESCE\(elevation_m,0\), recorded_at, COALESCE\(speed_mps,0\), created_at`).
+		WithArgs("session-scan").
+		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow(int64(1)))
+
+	svc := NewService(mock, nil)
+	_, err = svc.Points(context.Background(), "session-scan")
 	if err == nil {
 		t.Fatalf("expected error")
 	}

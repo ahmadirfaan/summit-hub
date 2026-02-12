@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/pashagolub/pgxmock/v3"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -158,6 +159,67 @@ func TestGenerateTokensSaveRefreshError(t *testing.T) {
 	}
 }
 
+func TestGenerateTokensAccessSignError(t *testing.T) {
+	oldSign := signTokenFn
+	signTokenFn = func(_ *Service, _ string, _ time.Duration) (string, error) {
+		return "", pgErr
+	}
+	defer func() { signTokenFn = oldSign }()
+
+	svc := NewService("test-secret", nil)
+	_, err := svc.GenerateTokens(context.Background(), "user-1")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestGenerateTokensRefreshSignError(t *testing.T) {
+	oldSign := signTokenFn
+	call := 0
+	signTokenFn = func(_ *Service, _ string, _ time.Duration) (string, error) {
+		call++
+		if call == 2 {
+			return "", pgErr
+		}
+		return "token", nil
+	}
+	defer func() { signTokenFn = oldSign }()
+
+	svc := NewService("test-secret", nil)
+	_, err := svc.GenerateTokens(context.Background(), "user-1")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestRegisterHashError(t *testing.T) {
+	oldHash := hashPasswordFn
+	hashPasswordFn = func(_ []byte, _ int) ([]byte, error) {
+		return nil, pgErr
+	}
+	defer func() { hashPasswordFn = oldHash }()
+
+	svc := NewService("test-secret", nil)
+	_, _, err := svc.Register(context.Background(), RegisterRequest{Email: "user@example.com", Username: "user", Password: "pass"})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestParseTokenInvalid(t *testing.T) {
+	oldParse := parseWithClaimsFn
+	parseWithClaimsFn = func(_ string, _ jwt.Claims, _ jwt.Keyfunc, _ ...jwt.ParserOption) (*jwt.Token, error) {
+		return &jwt.Token{Valid: false, Claims: &Claims{}}, nil
+	}
+	defer func() { parseWithClaimsFn = oldParse }()
+
+	svc := NewService("test-secret", nil)
+	_, err := svc.parseToken("token")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
 func TestValidateAccessTokenInvalid(t *testing.T) {
 	svc := NewService("test-secret", nil)
 	_, err := svc.ValidateAccessToken("invalid-token")
@@ -193,6 +255,56 @@ func TestLoginQueryError(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT id, email, username, password_hash, full_name, avatar_url, created_at, updated_at`).
 		WithArgs("user@example.com").
+		WillReturnError(pgErr)
+
+	svc := NewService("test-secret", mock)
+	_, _, err = svc.Login(context.Background(), LoginRequest{Email: "user@example.com", Password: "pass"})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestRegisterGenerateTokensError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	createdAt := time.Now()
+	updatedAt := time.Now()
+
+	mock.ExpectQuery(`INSERT INTO users`).
+		WithArgs(pgxmock.AnyArg(), "user@example.com", "user", pgxmock.AnyArg(), "", "").
+		WillReturnRows(pgxmock.NewRows([]string{"created_at", "updated_at"}).AddRow(createdAt, updatedAt))
+
+	mock.ExpectExec(`INSERT INTO refresh_tokens`).
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnError(pgErr)
+
+	svc := NewService("test-secret", mock)
+	_, _, err = svc.Register(context.Background(), RegisterRequest{Email: "user@example.com", Username: "user", Password: "pass"})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestLoginGenerateTokensError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("pass"), bcrypt.DefaultCost)
+
+	mock.ExpectQuery(`SELECT id, email, username, password_hash, full_name, avatar_url, created_at, updated_at`).
+		WithArgs("user@example.com").
+		WillReturnRows(pgxmock.NewRows([]string{"id", "email", "username", "password_hash", "full_name", "avatar_url", "created_at", "updated_at"}).
+			AddRow("user-1", "user@example.com", "user", string(hash), "", "", time.Now(), time.Now()))
+
+	mock.ExpectExec(`INSERT INTO refresh_tokens`).
+		WithArgs(pgxmock.AnyArg(), "user-1", pgxmock.AnyArg(), pgxmock.AnyArg()).
 		WillReturnError(pgErr)
 
 	svc := NewService("test-secret", mock)

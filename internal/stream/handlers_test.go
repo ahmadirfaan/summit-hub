@@ -65,3 +65,59 @@ func TestStreamHandlersWebsocketBroadcast(t *testing.T) {
 	hub.Broadcast("session-1", []byte("bye"))
 	_ = conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
 }
+
+func TestStreamHandlersWebsocketWriteError(t *testing.T) {
+	hub := NewHub(nil)
+	app := fiber.New()
+	RegisterRoutes(app.Group("/stream"), hub)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen error: %v", err)
+	}
+	defer ln.Close()
+
+	go func() {
+		_ = app.Listener(ln)
+	}()
+	defer func() { _ = app.Shutdown() }()
+
+	wsURL := "ws://" + ln.Addr().String() + "/stream/ws/session-2"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial error: %v", err)
+	}
+	conn.Close()
+
+	hub.Broadcast("session-2", []byte("ping"))
+	time.Sleep(20 * time.Millisecond)
+}
+
+func TestStreamHandlersWebsocketCloseMessage(t *testing.T) {
+	hub := NewHub(nil)
+	app := fiber.New()
+	RegisterRoutes(app.Group("/stream"), hub)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen error: %v", err)
+	}
+	defer ln.Close()
+
+	go func() {
+		_ = app.Listener(ln)
+	}()
+	defer func() { _ = app.Shutdown() }()
+
+	wsURL := "ws://" + ln.Addr().String() + "/stream/ws/session-3"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial error: %v", err)
+	}
+
+	_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
+	conn.Close()
+
+	hub.Broadcast("session-3", []byte("ping"))
+	time.Sleep(20 * time.Millisecond)
+}

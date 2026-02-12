@@ -247,6 +247,24 @@ func TestMembersQueryError(t *testing.T) {
 	}
 }
 
+func TestMembersScanError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`SELECT trip_id, user_id, role, joined_at`).
+		WithArgs("trip-scan").
+		WillReturnRows(pgxmock.NewRows([]string{"trip_id"}).AddRow("trip-scan"))
+
+	svc := NewService(mock)
+	_, err = svc.Members(context.Background(), "trip-scan")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
 func TestRoutesQueryError(t *testing.T) {
 	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
 	if err != nil {
@@ -260,6 +278,24 @@ func TestRoutesQueryError(t *testing.T) {
 
 	svc := NewService(mock)
 	_, err = svc.Routes(context.Background(), "trip-err")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestRoutesScanError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`SELECT id, trip_id, name, description, total_distance_m, total_elevation_gain_m, ST_AsText\(route\), uploaded_by, created_at`).
+		WithArgs("trip-scan").
+		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow("route-1"))
+
+	svc := NewService(mock)
+	_, err = svc.Routes(context.Background(), "trip-scan")
 	if err == nil {
 		t.Fatalf("expected error")
 	}

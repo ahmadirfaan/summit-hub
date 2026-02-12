@@ -59,6 +59,30 @@ func TestWaypointHandlersBadRequest(t *testing.T) {
 	}
 }
 
+func TestWaypointHandlersCreateParseError(t *testing.T) {
+	app := fiber.New()
+	RegisterRoutes(app.Group("/waypoints"), NewService(nil), func(c *fiber.Ctx) error { return c.Next() })
+
+	req := httptest.NewRequest(http.MethodPost, "/waypoints/", bytes.NewReader([]byte("{")))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected bad request")
+	}
+}
+
+func TestWaypointHandlersUpdateParseError(t *testing.T) {
+	app := fiber.New()
+	RegisterRoutes(app.Group("/waypoints"), NewService(nil), func(c *fiber.Ctx) error { return c.Next() })
+
+	req := httptest.NewRequest(http.MethodPut, "/waypoints/wp-1", bytes.NewReader([]byte("{")))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected bad request")
+	}
+}
+
 func TestWaypointHandlersUpdateDelete(t *testing.T) {
 	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
 	if err != nil {
@@ -289,6 +313,72 @@ func TestWaypointHandlersErrors(t *testing.T) {
 	}
 }
 
+func TestWaypointHandlersVisitError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`SELECT EXISTS`).WithArgs("wp-err", "user-1").
+		WillReturnError(errWaypoint)
+
+	app := fiber.New()
+	RegisterRoutes(app.Group("/waypoints"), NewService(mock), func(c *fiber.Ctx) error { return c.Next() })
+
+	visitBody, _ := json.Marshal(map[string]string{"user_id": "user-1"})
+	req := httptest.NewRequest(http.MethodPost, "/waypoints/wp-err/visit", bytes.NewReader(visitBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected visit error")
+	}
+}
+
+func TestWaypointHandlersReviewServiceError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`SELECT EXISTS`).WithArgs("wp-1", "user-1").
+		WillReturnError(errWaypoint)
+
+	app := fiber.New()
+	RegisterRoutes(app.Group("/waypoints"), NewService(mock), func(c *fiber.Ctx) error { return c.Next() })
+
+	reviewBody, _ := json.Marshal(map[string]interface{}{"user_id": "user-1", "rating": 5, "comment": "great"})
+	req := httptest.NewRequest(http.MethodPost, "/waypoints/wp-1/reviews", bytes.NewReader(reviewBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected review error")
+	}
+}
+
+func TestWaypointHandlersSearchDefaultRadius(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`SELECT id, name, description, type, ST_Y\(location::geometry\), ST_X\(location::geometry\),`).
+		WithArgs(106.8, -6.2, 5000.0).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "name", "description", "type", "lat", "lng", "elevation_m", "created_by", "is_verified", "created_at"}).
+			AddRow("wp-1", "WP", "desc", "peak", -6.2, 106.8, 100.0, "user-1", false, time.Now()))
+
+	app := fiber.New()
+	RegisterRoutes(app.Group("/waypoints"), NewService(mock), func(c *fiber.Ctx) error { return c.Next() })
+
+	req := httptest.NewRequest(http.MethodGet, "/waypoints/search?lat=-6.2&lng=106.8&radius_km=", nil)
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected search ok")
+	}
+}
+
 func TestWaypointHandlersReviewBadRequest(t *testing.T) {
 	app := fiber.New()
 	RegisterRoutes(app.Group("/waypoints"), NewService(nil), func(c *fiber.Ctx) error { return c.Next() })
@@ -306,6 +396,30 @@ func TestWaypointHandlersPhotosBadRequest(t *testing.T) {
 	RegisterRoutes(app.Group("/waypoints"), NewService(nil), func(c *fiber.Ctx) error { return c.Next() })
 
 	req := httptest.NewRequest(http.MethodPost, "/waypoints/wp-1/photos", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected bad request")
+	}
+}
+
+func TestWaypointHandlersVisitBadRequest(t *testing.T) {
+	app := fiber.New()
+	RegisterRoutes(app.Group("/waypoints"), NewService(nil), func(c *fiber.Ctx) error { return c.Next() })
+
+	req := httptest.NewRequest(http.MethodPost, "/waypoints/wp-1/visit", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected bad request")
+	}
+}
+
+func TestWaypointHandlersReviewMissingUser(t *testing.T) {
+	app := fiber.New()
+	RegisterRoutes(app.Group("/waypoints"), NewService(nil), func(c *fiber.Ctx) error { return c.Next() })
+
+	req := httptest.NewRequest(http.MethodPost, "/waypoints/wp-1/reviews", bytes.NewReader([]byte(`{"rating":5}`)))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := app.Test(req)
 	if err != nil || resp.StatusCode != http.StatusBadRequest {

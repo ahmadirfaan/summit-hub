@@ -35,4 +35,21 @@ func TestJWTMiddleware(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected ok")
 	}
+
+	// invalid scheme
+	req = httptest.NewRequest(http.MethodGet, "/private", nil)
+	req.Header.Set("Authorization", "Token "+token)
+	resp, _ = app.Test(req)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized")
+	}
+
+	// invalid token signature
+	wrongToken, _ := NewService("other", nil).signToken("user-1", accessTokenTTL)
+	req = httptest.NewRequest(http.MethodGet, "/private", nil)
+	req.Header.Set("Authorization", "Bearer "+wrongToken)
+	resp, _ = app.Test(req)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized")
+	}
 }

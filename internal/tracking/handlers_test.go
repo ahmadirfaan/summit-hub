@@ -63,6 +63,18 @@ func TestTrackingHandlersBadRequest(t *testing.T) {
 	}
 }
 
+func TestTrackingHandlersSessionParseError(t *testing.T) {
+	app := fiber.New()
+	RegisterRoutes(app.Group("/tracking"), NewService(nil, nil), func(c *fiber.Ctx) error { return c.Next() })
+
+	req := httptest.NewRequest(http.MethodPost, "/tracking/sessions", bytes.NewReader([]byte("{")))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected bad request")
+	}
+}
+
 func TestTrackingHandlersSummaryPoints(t *testing.T) {
 	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
 	if err != nil {

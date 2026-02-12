@@ -88,3 +88,16 @@ func TestHubRedisBroadcastAndSubscribe(t *testing.T) {
 		t.Fatalf("timeout waiting for redis message")
 	}
 }
+
+func TestHubRedisPublishError(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	server.Close()
+	defer client.Close()
+
+	hub := NewHub(client)
+	clientNode := hub.Register("session-bad")
+	defer hub.Unregister(clientNode)
+
+	hub.Broadcast("session-bad", []byte("ping"))
+}

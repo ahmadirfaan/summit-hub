@@ -71,6 +71,18 @@ func TestTripHandlersBadRequest(t *testing.T) {
 	}
 }
 
+func TestTripHandlersCreateParseError(t *testing.T) {
+	app := fiber.New()
+	RegisterRoutes(app.Group("/trips"), NewService(nil), func(c *fiber.Ctx) error { return c.Next() })
+
+	req := httptest.NewRequest(http.MethodPost, "/trips/", bytes.NewReader([]byte("{")))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected bad request")
+	}
+}
+
 func TestTripHandlersUpdateDeleteMembersRoutes(t *testing.T) {
 	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
 	if err != nil {
@@ -239,6 +251,18 @@ func TestTripHandlersUpdateError(t *testing.T) {
 	}
 }
 
+func TestTripHandlersUpdateBadRequest(t *testing.T) {
+	app := fiber.New()
+	RegisterRoutes(app.Group("/trips"), NewService(nil), func(c *fiber.Ctx) error { return c.Next() })
+
+	req := httptest.NewRequest(http.MethodPut, "/trips/trip-1", bytes.NewReader([]byte("{")))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected bad request")
+	}
+}
+
 func TestTripHandlersDeleteError(t *testing.T) {
 	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
 	if err != nil {
@@ -297,5 +321,51 @@ func TestTripHandlersRoutesError(t *testing.T) {
 	resp, err := app.Test(req)
 	if err != nil || resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("expected routes error")
+	}
+}
+
+func TestTripHandlersMemberCreateError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`INSERT INTO trip_members`).
+		WithArgs("trip-1", "user-2", "member").
+		WillReturnError(errQuery)
+
+	app := fiber.New()
+	RegisterRoutes(app.Group("/trips"), NewService(mock), func(c *fiber.Ctx) error { return c.Next() })
+
+	memberBody, _ := json.Marshal(map[string]string{"user_id": "user-2"})
+	req := httptest.NewRequest(http.MethodPost, "/trips/trip-1/members", bytes.NewReader(memberBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected member error")
+	}
+}
+
+func TestTripHandlersRouteCreateError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery(`INSERT INTO gpx_routes`).
+		WithArgs(pgxmock.AnyArg(), "trip-1", "Route", "", 0.0, 0.0, "LINESTRING(0 0,1 1)", "user-1").
+		WillReturnError(errQuery)
+
+	app := fiber.New()
+	RegisterRoutes(app.Group("/trips"), NewService(mock), func(c *fiber.Ctx) error { return c.Next() })
+
+	body, _ := json.Marshal(map[string]interface{}{"uploaded_by": "user-1", "route": "LINESTRING(0 0,1 1)", "name": "Route"})
+	req := httptest.NewRequest(http.MethodPost, "/trips/trip-1/routes", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected route error")
 	}
 }
