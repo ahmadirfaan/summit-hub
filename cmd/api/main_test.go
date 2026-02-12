@@ -165,3 +165,20 @@ func TestRunClosesResources(t *testing.T) {
 		t.Fatalf("run returned error: %v", err)
 	}
 }
+
+func TestRunShutdownError(t *testing.T) {
+	cfg := config.Config{ServerPort: ":0"}
+	signals := make(chan os.Signal, 1)
+
+	oldShutdown := shutdownFn
+	shutdownFn = func(_ *fiber.App, _ context.Context) error { return errListen }
+	defer func() { shutdownFn = oldShutdown }()
+
+	go func() {
+		signals <- syscall.SIGINT
+	}()
+
+	if err := Run(context.Background(), cfg, nil, nil, signals, func(_ *fiber.App, _ string) error { return nil }); err == nil {
+		t.Fatalf("expected shutdown error")
+	}
+}

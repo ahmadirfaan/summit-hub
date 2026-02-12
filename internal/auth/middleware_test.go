@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestJWTMiddleware(t *testing.T) {
@@ -49,6 +50,26 @@ func TestJWTMiddleware(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/private", nil)
 	req.Header.Set("Authorization", "Bearer "+wrongToken)
 	resp, _ = app.Test(req)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized")
+	}
+}
+
+func TestJWTMiddlewareInvalidClaims(t *testing.T) {
+	oldParse := parseMiddlewareClaimsFn
+	parseMiddlewareClaimsFn = func(_ string, _ jwt.Claims, _ jwt.Keyfunc, _ ...jwt.ParserOption) (*jwt.Token, error) {
+		return &jwt.Token{Valid: false, Claims: &Claims{}}, nil
+	}
+	defer func() { parseMiddlewareClaimsFn = oldParse }()
+
+	app := fiber.New()
+	app.Get("/private", JWTMiddleware("secret"), func(c *fiber.Ctx) error {
+		return c.SendStatus(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/private", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	resp, _ := app.Test(req)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected unauthorized")
 	}

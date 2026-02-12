@@ -66,6 +66,10 @@ var defaultListen ListenFunc = func(app *fiber.App, addr string) error {
 	return app.Listen(addr)
 }
 
+var shutdownFn = func(app *fiber.App, ctx context.Context) error {
+	return app.ShutdownWithContext(ctx)
+}
+
 // Run starts the HTTP server and waits for termination signals.
 func Run(ctx context.Context, cfg config.Config, pg *pgxpool.Pool, rdb *redis.Client, signals <-chan os.Signal, listen ListenFunc) error {
 	srv := server.NewServer(cfg, pg, rdb)
@@ -91,7 +95,7 @@ func Run(ctx context.Context, cfg config.Config, pg *pgxpool.Pool, rdb *redis.Cl
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.App.ShutdownWithContext(shutdownCtx); err != nil {
+	if err := shutdownFn(srv.App, shutdownCtx); err != nil {
 		return err
 	}
 	if pg != nil {

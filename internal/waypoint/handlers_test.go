@@ -122,6 +122,27 @@ func TestWaypointHandlersUpdateDelete(t *testing.T) {
 	}
 }
 
+func TestWaypointHandlersDeleteError(t *testing.T) {
+	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("mock pool: %v", err)
+	}
+	defer mock.Close()
+
+	mock.ExpectExec(`DELETE FROM waypoints`).
+		WithArgs("wp-err").
+		WillReturnError(errWaypoint)
+
+	app := fiber.New()
+	RegisterRoutes(app.Group("/waypoints"), NewService(mock), func(c *fiber.Ctx) error { return c.Next() })
+
+	req := httptest.NewRequest(http.MethodDelete, "/waypoints/wp-err", nil)
+	resp, err := app.Test(req)
+	if err != nil || resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected delete error")
+	}
+}
+
 func TestWaypointHandlersVisitReview(t *testing.T) {
 	mock, err := pgxmock.NewPool(pgxmock.QueryMatcherOption(pgxmock.QueryMatcherRegexp))
 	if err != nil {

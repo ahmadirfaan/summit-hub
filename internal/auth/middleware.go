@@ -16,7 +16,7 @@ func JWTMiddleware(secret string) fiber.Handler {
 			return fiber.NewError(fiber.StatusUnauthorized, "missing bearer token")
 		}
 
-		parsed, err := jwt.ParseWithClaims(token, &Claims{}, func(_ *jwt.Token) (interface{}, error) {
+		parsed, err := parseMiddlewareClaimsFn(token, &Claims{}, func(_ *jwt.Token) (interface{}, error) {
 			return secretBytes, nil
 		})
 		if err != nil {
@@ -32,6 +32,8 @@ func JWTMiddleware(secret string) fiber.Handler {
 		return c.Next()
 	}
 }
+
+var parseMiddlewareClaimsFn = jwt.ParseWithClaims
 
 func bearerFromHeader(header string) string {
 	parts := strings.SplitN(header, " ", 2)
