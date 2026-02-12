@@ -4,15 +4,16 @@ import (
 	"context"
 	"sort"
 
+	"backend-summithub/internal/db"
+
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Service struct {
-	db *pgxpool.Pool
+	db db.Querier
 }
 
-func NewService(db *pgxpool.Pool) *Service {
+func NewService(db db.Querier) *Service {
 	return &Service{db: db}
 }
 

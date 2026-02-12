@@ -5,19 +5,19 @@ import (
 	"encoding/json"
 	"time"
 
+	"backend-summithub/internal/db"
 	"backend-summithub/internal/shared/geo"
 	"backend-summithub/internal/stream"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Service struct {
-	db  *pgxpool.Pool
+	db  db.Querier
 	hub *stream.Hub
 }
 
-func NewService(db *pgxpool.Pool, hub *stream.Hub) *Service {
+func NewService(db db.Querier, hub *stream.Hub) *Service {
 	return &Service{db: db, hub: hub}
 }
 

@@ -23,6 +23,20 @@ func RegisterRoutes(r fiber.Router, svc *Service, authMiddleware fiber.Handler) 
 		return c.Status(fiber.StatusCreated).JSON(wp)
 	})
 
+	r.Get("/search", func(c *fiber.Ctx) error {
+		lat, _ := strconv.ParseFloat(c.Query("lat"), 64)
+		lng, _ := strconv.ParseFloat(c.Query("lng"), 64)
+		radius, _ := strconv.ParseFloat(c.Query("radius_km"), 64)
+		if radius == 0 {
+			radius = 5
+		}
+		results, err := svc.Search(c.Context(), lat, lng, radius)
+		if err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		}
+		return c.JSON(results)
+	})
+
 	r.Get("/:id", func(c *fiber.Ctx) error {
 		wp, err := svc.GetWaypoint(c.Context(), c.Params("id"))
 		if err != nil {
@@ -128,19 +142,5 @@ func RegisterRoutes(r fiber.Router, svc *Service, authMiddleware fiber.Handler) 
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
 		return c.JSON(photos)
-	})
-
-	r.Get("/search", func(c *fiber.Ctx) error {
-		lat, _ := strconv.ParseFloat(c.Query("lat"), 64)
-		lng, _ := strconv.ParseFloat(c.Query("lng"), 64)
-		radius, _ := strconv.ParseFloat(c.Query("radius_km"), 64)
-		if radius == 0 {
-			radius = 5
-		}
-		results, err := svc.Search(c.Context(), lat, lng, radius)
-		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-		}
-		return c.JSON(results)
 	})
 }

@@ -5,9 +5,10 @@ import (
 	"errors"
 	"time"
 
+	"backend-summithub/internal/db"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -18,7 +19,7 @@ const (
 
 type Service struct {
 	secret []byte
-	db     *pgxpool.Pool
+	db     db.Querier
 }
 
 type Claims struct {
@@ -26,7 +27,7 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-func NewService(secret string, db *pgxpool.Pool) *Service {
+func NewService(secret string, db db.Querier) *Service {
 	return &Service{
 		secret: []byte(secret),
 		db:     db,
