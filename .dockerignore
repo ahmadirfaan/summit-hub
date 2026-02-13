@@ -1,0 +1,10 @@
+.git
+.vscode
+coverage.out
+coverage.html
+**/*_test.go
+**/*.md
+bin
+build
+.tmp
+node_modules

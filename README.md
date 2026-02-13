@@ -15,6 +15,18 @@ Backend skeleton for hiking trips, tracking, waypoints, and social feed. Uses Fi
 1) Configure environment variables (see `.env.example`).
 2) Ensure PostgreSQL has PostGIS enabled (migration in `migrations/001_init.sql`).
 
+## Docker Compose
+
+Use the provided `docker-compose.yml` to run PostgreSQL with PostGIS, Redis, and the API.
+
+Notes:
+- The database is initialized from `migrations/001_init.sql` on first startup.
+- Update `JWT_SECRET` and other env values in the compose file if needed.
+
+Steps:
+1) Start the stack with Docker Compose.
+2) Visit the API at `http://localhost:8080`.
+
 ## API overview
 
 Base URL: `http://localhost:8080`

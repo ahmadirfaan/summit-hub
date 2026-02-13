@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -141,3 +142,237 @@ CREATE TABLE storage_objects (
     kind VARCHAR(50),
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Seed 1000 synthetic users for local/dev usage
+INSERT INTO users (id, email, username, password_hash, full_name, avatar_url, created_at, updated_at)
+SELECT
+    gen_random_uuid(),
+    format('user%04s@example.com', gs),
+    format('user%04s', gs),
+    'dev-hash',
+    format('User %s', gs),
+    format('https://picsum.photos/seed/user%04s/200/200', gs),
+    NOW() - (gs || ' hours')::interval,
+    NOW() - (gs || ' hours')::interval
+FROM generate_series(1, 1000) AS gs
+ON CONFLICT (email) DO NOTHING;
+
+-- Seed trips
+INSERT INTO trips (id, name, mountain_name, start_date, end_date, description, created_by, created_at)
+SELECT
+    gen_random_uuid(),
+    format('Trip %s', gs),
+    (ARRAY['Merbabu','Semeru','Rinjani','Kerinci','Gede','Pangrango','Sindoro','Sumbing'])[1 + (gs % 8)],
+    CURRENT_DATE - (gs % 30),
+    CURRENT_DATE - (gs % 30) + ((gs % 7) + 1),
+    'Auto-generated trip for dev data',
+    (SELECT id FROM users ORDER BY random() LIMIT 1),
+    NOW() - (gs || ' days')::interval
+FROM generate_series(1, 200) AS gs;
+
+-- Seed trip members
+INSERT INTO trip_members (trip_id, user_id, role, joined_at)
+SELECT
+    t.id,
+    u.id,
+    CASE WHEN random() < 0.1 THEN 'admin' ELSE 'member' END,
+    NOW() - ((random() * 30)::int || ' days')::interval
+FROM trips t
+JOIN LATERAL (
+    SELECT id FROM users ORDER BY random() LIMIT 5
+) u ON TRUE
+ON CONFLICT DO NOTHING;
+
+-- Seed waypoints (clustered around Indonesian mountains)
+INSERT INTO waypoints (id, name, description, type, location, elevation_m, created_by, is_verified, created_at)
+SELECT
+    gen_random_uuid(),
+    format('Waypoint %s', gs),
+    'Auto-generated waypoint for dev data',
+    (ARRAY['camp','peak','viewpoint','spring','hut'])[1 + (gs % 5)],
+    ST_SetSRID(ST_MakePoint(m.lon + (random() - 0.5) * 0.12, m.lat + (random() - 0.5) * 0.12), 4326)::geography,
+    100 + (random() * 3000),
+    (SELECT id FROM users ORDER BY random() LIMIT 1),
+    random() < 0.3,
+    NOW() - (gs || ' days')::interval
+FROM generate_series(1, 5000) AS gs
+JOIN LATERAL (
+    SELECT * FROM (VALUES
+        ('Semeru', 112.922, -8.108),
+        ('Rinjani', 116.457, -8.411),
+        ('Kerinci', 101.264, -1.697),
+        ('Merbabu', 110.440, -7.454),
+        ('Gede', 106.984, -6.783),
+        ('Pangrango', 106.993, -6.772),
+        ('Sindoro', 109.992, -7.300),
+        ('Sumbing', 110.071, -7.384)
+    ) AS t(name, lon, lat)
+    ORDER BY random()
+    LIMIT 1
+) AS m ON TRUE;
+
+-- Seed waypoint reviews
+INSERT INTO waypoint_reviews (id, waypoint_id, user_id, rating, comment, created_at)
+SELECT
+    gen_random_uuid(),
+    w.id,
+    (SELECT id FROM users ORDER BY random() LIMIT 1),
+    1 + (random() * 4)::int,
+    'Great spot for a break!',
+    NOW() - ((random() * 20)::int || ' days')::interval
+FROM waypoints w
+ORDER BY random()
+LIMIT 800
+ON CONFLICT (waypoint_id, user_id) DO NOTHING;
+
+-- Seed waypoint photos
+INSERT INTO waypoint_photos (id, waypoint_id, user_id, photo_url, caption, location, taken_at, created_at)
+SELECT
+    gen_random_uuid(),
+    w.id,
+    (SELECT id FROM users ORDER BY random() LIMIT 1),
+    format('https://picsum.photos/seed/waypoint%04s/800/600', gs),
+    'Auto-generated photo',
+    w.location,
+    NOW() - ((random() * 20)::int || ' days')::interval,
+    NOW() - ((random() * 20)::int || ' days')::interval
+FROM (SELECT id, location FROM waypoints ORDER BY random() LIMIT 1200) w
+JOIN generate_series(1, 1200) gs ON TRUE;
+
+-- Seed posts (clustered around Indonesian mountains)
+INSERT INTO posts (id, user_id, content, location, visibility, created_at)
+SELECT
+    gen_random_uuid(),
+    (SELECT id FROM users ORDER BY random() LIMIT 1),
+    'Auto-generated post content',
+    ST_SetSRID(ST_MakePoint(m.lon + (random() - 0.5) * 0.15, m.lat + (random() - 0.5) * 0.15), 4326)::geography,
+    CASE WHEN random() < 0.85 THEN 'public' ELSE 'followers' END,
+    NOW() - ((random() * 30)::int || ' days')::interval
+FROM generate_series(1, 10000) AS gs
+JOIN LATERAL (
+    SELECT * FROM (VALUES
+        ('Semeru', 112.922, -8.108),
+        ('Rinjani', 116.457, -8.411),
+        ('Kerinci', 101.264, -1.697),
+        ('Merbabu', 110.440, -7.454),
+        ('Gede', 106.984, -6.783),
+        ('Pangrango', 106.993, -6.772),
+        ('Sindoro', 109.992, -7.300),
+        ('Sumbing', 110.071, -7.384)
+    ) AS t(name, lon, lat)
+    ORDER BY random()
+    LIMIT 1
+) AS m ON TRUE;
+
+-- Seed post photos
+INSERT INTO post_photos (id, post_id, photo_url, created_at)
+SELECT
+    gen_random_uuid(),
+    p.id,
+    format('https://picsum.photos/seed/post%04s/1000/800', gs),
+    NOW() - ((random() * 30)::int || ' days')::interval
+FROM (SELECT id FROM posts ORDER BY random() LIMIT 3000) p
+JOIN generate_series(1, 3000) gs ON TRUE;
+
+-- Seed follows
+INSERT INTO user_follows (follower_id, following_id, created_at)
+SELECT
+    u1.id,
+    u2.id,
+    NOW() - ((random() * 60)::int || ' days')::interval
+FROM (SELECT id FROM users ORDER BY random() LIMIT 1500) u1
+JOIN LATERAL (SELECT id FROM users ORDER BY random() LIMIT 1) u2 ON TRUE
+WHERE u1.id <> u2.id
+ON CONFLICT DO NOTHING;
+
+-- Seed refresh tokens
+INSERT INTO refresh_tokens (id, user_id, token, expires_at, created_at, revoked_at)
+SELECT
+    gen_random_uuid(),
+    u.id,
+    encode(gen_random_bytes(32), 'hex'),
+    NOW() + INTERVAL '30 days',
+    NOW() - ((random() * 10)::int || ' days')::interval,
+    NULL
+FROM (SELECT id FROM users ORDER BY random() LIMIT 400) u;
+
+-- Seed storage objects
+INSERT INTO storage_objects (id, user_id, url, kind, created_at)
+SELECT
+    gen_random_uuid(),
+    (SELECT id FROM users ORDER BY random() LIMIT 1),
+    format('https://picsum.photos/seed/storage%04s/1200/900', gs),
+    (ARRAY['photo','gpx','avatar'])[1 + (gs % 3)],
+    NOW() - ((random() * 30)::int || ' days')::interval
+FROM generate_series(1, 500) gs;
+
+-- Seed track sessions
+INSERT INTO track_sessions (id, trip_id, user_id, started_at, ended_at, total_distance_m, total_elevation_gain_m, status)
+SELECT
+    gen_random_uuid(),
+    (SELECT id FROM trips ORDER BY random() LIMIT 1),
+    (SELECT id FROM users ORDER BY random() LIMIT 1),
+    NOW() - ((random() * 20)::int || ' days')::interval,
+    NOW() - ((random() * 20)::int || ' days')::interval + INTERVAL '2 hours',
+    1000 + (random() * 20000),
+    100 + (random() * 2000),
+    'completed'
+FROM generate_series(1, 200) gs;
+
+-- Seed track points
+INSERT INTO track_points (session_id, location, elevation_m, recorded_at, speed_mps, created_at)
+SELECT
+    s.id,
+    ST_SetSRID(ST_MakePoint(m.lon + (random() - 0.5) * 0.12, m.lat + (random() - 0.5) * 0.12), 4326)::geography,
+    100 + (random() * 3000),
+    s.started_at + (gs || ' minutes')::interval,
+    0.5 + (random() * 4),
+    s.started_at + (gs || ' minutes')::interval
+FROM (SELECT id, started_at FROM track_sessions ORDER BY random() LIMIT 100) s
+JOIN generate_series(1, 50) gs ON TRUE
+JOIN LATERAL (
+    SELECT * FROM (VALUES
+        ('Semeru', 112.922, -8.108),
+        ('Rinjani', 116.457, -8.411),
+        ('Kerinci', 101.264, -1.697),
+        ('Merbabu', 110.440, -7.454),
+        ('Gede', 106.984, -6.783),
+        ('Pangrango', 106.993, -6.772),
+        ('Sindoro', 109.992, -7.300),
+        ('Sumbing', 110.071, -7.384)
+    ) AS t(name, lon, lat)
+    ORDER BY random()
+    LIMIT 1
+) AS m ON TRUE;
+
+-- Seed GPX routes (synthetic lines near mountain clusters)
+INSERT INTO gpx_routes (id, trip_id, name, description, total_distance_m, total_elevation_gain_m, route, uploaded_by, created_at)
+SELECT
+    gen_random_uuid(),
+    (SELECT id FROM trips ORDER BY random() LIMIT 1),
+    format('Route %s', gs),
+    'Auto-generated GPX route',
+    1000 + (random() * 20000),
+    100 + (random() * 2000),
+    ST_MakeLine(ARRAY[
+        ST_SetSRID(ST_MakePoint(m.lon - 0.03, m.lat - 0.02), 4326),
+        ST_SetSRID(ST_MakePoint(m.lon, m.lat), 4326),
+        ST_SetSRID(ST_MakePoint(m.lon + 0.03, m.lat + 0.02), 4326)
+    ])::geography,
+    (SELECT id FROM users ORDER BY random() LIMIT 1),
+    NOW() - ((random() * 20)::int || ' days')::interval
+FROM generate_series(1, 150) gs
+JOIN LATERAL (
+    SELECT * FROM (VALUES
+        ('Semeru', 112.922, -8.108),
+        ('Rinjani', 116.457, -8.411),
+        ('Kerinci', 101.264, -1.697),
+        ('Merbabu', 110.440, -7.454),
+        ('Gede', 106.984, -6.783),
+        ('Pangrango', 106.993, -6.772),
+        ('Sindoro', 109.992, -7.300),
+        ('Sumbing', 110.071, -7.384)
+    ) AS t(name, lon, lat)
+    ORDER BY random()
+    LIMIT 1
+) AS m ON TRUE;
